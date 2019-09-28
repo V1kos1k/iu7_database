@@ -4,7 +4,7 @@ from werkzeug.urls import url_parse
 from werkzeug.utils import secure_filename
 from app import app, db
 from .forms import LoginForm, RegistrationForm, EditProfileForm, ResetPasswordRequestForm, ResetPasswordForm, AddBookForm, SearchForm, ChangeForm
-from .models import User, Book, Location
+from .models import User, Book, Location, Status
 from .email import send_password_reset_email
 from datetime import datetime
 import sqlite3
@@ -13,7 +13,7 @@ import base64
 # привязка адресов к функции
 @app.route('/')
 @app.route('/index', methods = ['GET', 'POST'])
-@login_required  # декоратор, попказывающий, что функция защищенная от невошедших пользователей
+#@login_required  # декоратор, показывающий, что функция защищенная от невошедших пользователей
 def index():
     page = request.args.get('page', 1, type=int)
     books = Book.query.order_by(Book.author).paginate(page, app.config['BOOKS_PER_PAGE'], False)
@@ -65,8 +65,6 @@ def register():
 @login_required
 def add_book():
     form = AddBookForm()
-    #form_img = AddImageForm()
-    #form_img = AddImageForm()
     image_string = None
     if form.validate_on_submit():
         result = (form.image.data and form.image.data.read())
@@ -75,10 +73,10 @@ def add_book():
             image_string = image_string[2:-1]
 
         book = Book(title=form.title.data, about_book=form.about_book.data,
-                    author=form.author.data, image=image_string) # добавить картинку
+                    author=form.author.data, image=image_string)
         conn = sqlite3.connect("app.db")
         cursor = conn.cursor()
-        cursor.execute("select count(id) from book")
+        cursor.execute("select max(id) from book")
         res1 = cursor.fetchone()
         conn.close()
 
@@ -89,63 +87,40 @@ def add_book():
         db.session.add(location)
         db.session.commit()
         flash('Поздравляем, новая книга добавлена!')
-        # сделать так, чтобы переходило на страницу книги
         return redirect(url_for('index'))
     return render_template('add_book.html', title='Add Book', form=form)
 
 
 @app.route('/change_location/<bookid>', methods=['GET', 'POST'])
+@login_required
 def change_location():
     locate = ChangeForm()
     if locate.validate_on_submit():
-        conn = sqlite3.connect("app.db")
-        cursor = conn.cursor()
-        cursor.execute("UPDATE location SET shelving = (?), shelf = (?), column = (?), position = (?) WHERE id = (?)", (locate.shelving.data,
-                                                                                                                locate.shelf.data,
-                                                                                                                locate.column.data,
-                                                                                                                locate.position.data,
-                                                                                                                bookid))
-        conn.commit()
-        conn.close()
+        Location.update_location(locate.shelving.data, locate.shelf.data, locate.column.data, locate.position.data, bookid)
         return render_template('book.html', locate=locate)
     return render_template('book.html', locate=locate)
 
 
 
 @app.route('/search', methods=['POST', 'GET'])
-@login_required
+#@login_required
 def search():
-    # if not form.validate_on_submit():
-    #     return redirect(url_for('explore'))
-
-    #r = request.json["q"]
-    #print(search)
     r = request.args.get('q', type=str)
     f = request.args.get('search[field]')
 
     search = "%{}%".format(r)
 
-    conn = sqlite3.connect("app.db")
-    cursor = conn.cursor()
     if f == "title":
-        cursor.execute("select id, title, author, image from book where title like (?)", (search, ))
+        res = Book.search_title(search)
     elif f == "author":
-        cursor.execute("select id, title, author, image from book where author like (?)", (search, ))
-    # elif f == "genre":
-    #     cursor.execute("select id, title, author, image from book where genre like (?)", (search, ))
+        res = Book.search_author(search)
     else:
-        cursor.execute("select id, title, author, image from book where author like (?) or title like (?)", (search, search))
-    res = cursor.fetchall()
-    conn.close()
-
-    #print(res)
+        res = Book.no_search(search)
 
     books = []
     for b in res:
         books.append({'id':b[0], 'title': b[1], 'author': b[2], 'image': b[3]})
-        print(type(b[3]))
 
-                #return redirect(url_for('search'))
     return render_template('search.html', title="Search", books=books)
 
 
@@ -181,7 +156,6 @@ def edit_profile():
         db.session.commit()
         flash('Your changes have been saved.')
         return render_template('edit_profile.html', title='Edit Profile', form=form)
-        #return redirect(url_for('edit_profile'))
     elif request.method == 'GET':
         # отображаем значения, которые хранятся в бд
         form.username.data = current_user.username
@@ -190,18 +164,12 @@ def edit_profile():
 
 
 @app.route('/explore', methods=['GET', 'POST'])
-@login_required
+#@login_required
 def explore():
-    # if request.json['sort']:
-    #     print("OKKKKKKK")
-    #r = request.json['sort']
     page = request.args.get('page', 1, type=int)
 
-    #if r == author:
     books = Book.query.order_by(Book.author).paginate(page, app.config['BOOKS_PER_PAGE'], False)
-    # else:
-    #     books = Book.query.order_by(Book.title).paginate(page, app.config['BOOKS_PER_PAGE'], False)
-    #print(books.items)
+
     next_url = url_for('explore', page = books.next_num) if books.has_next else None
     prev_url = url_for('explore', page = books.prev_num) if books.has_prev else None
     return render_template('index.html', title='Explore', books=books.items, next_url=next_url, prev_url=prev_url)
@@ -214,7 +182,6 @@ def reset_password_request():
     form = ResetPasswordRequestForm()
     if form.validate_on_submit():
         user = User.query.filter_by(email=form.email.data).first()
-        #print('\n\n{}\n\n'.format(user))
         if user:
             send_password_reset_email(user)
         flash("Check your email for the instructions to reset your password")
@@ -239,38 +206,14 @@ def reset_password(token):
 
 
 @app.route('/book/<username>/<bookid>', methods=['GET', 'POST'])
+@login_required
 def book(username, bookid):
     locate = ChangeForm()
     if locate.validate_on_submit():
-        conn = sqlite3.connect("app.db")
-        cursor = conn.cursor()
-        cursor.execute("UPDATE location SET shelving = (?), shelf = (?), column = (?), position = (?) WHERE id = (?)", (locate.shelving.data,
-                                                                                                                locate.shelf.data,
-                                                                                                                locate.column.data,
-                                                                                                                locate.position.data,
-                                                                                                                bookid))
-        conn.commit()
-        conn.close()
+        Location.update_location(locate.shelving.data, locate.shelf.data, locate.column.data, locate.position.data, bookid)
+    res = Book.other_books_author(bookid)
 
-
-
-    conn = sqlite3.connect("app.db")
-    cursor = conn.cursor()
-    cursor.execute("select book.id, book.title, book.author, book.image, B.title, B.author, B.about_book, B.image, B.shelving, B.shelf, B.column, B.position, B.id " +
-                    "from ( " +
-                        "select book.id, title, author, about_book, image, shelving, shelf, column, position " +
-                        "from book left join location on book.id = location.book_id  where book.id = (?) " +
-                        ") as B left join book on book.author = B.author and B.id != book.id;", (bookid, ))
-    res = cursor.fetchall()
-
-    cursor.execute("select status " +
-                    "from ( " +
-                        "select username, book.id, status " +
-                        "from (user join status on user.id == status.user_id) as us " +
-                        "join book on us.book_id == book.id" +
-                        ") as res where res.id = (?)", (bookid, ))
-    res1 = cursor.fetchone()
-    conn.close()
+    res1 = Book.get_status_book(bookid)
 
     if res1 == None:
         book = {'title': res[0][4], 'author': res[0][5], 'about_book':res[0][6], 'image': res[0][7], 'shelving': res[0][8], 'shelf': res[0][9], 'column': res[0][10], 'position': res[0][11], 'book_id': res[0][12], 'status': 0}
@@ -285,67 +228,80 @@ def book(username, bookid):
 
 
 @app.route('/set_status', methods=["PUT", "OPTIONS"])
+@login_required
 def set_status():
     r = request.json['info']
     status = r["status"]
     username = current_user.username
     book_id = r["book_id"]
 
-    conn = sqlite3.connect("app.db")
-    cursor = conn.cursor()
-    cursor.execute("update status set status = (?) " +
-                   "where book_id = (?) and user_id = ( " +
-                        "select id " +
-                        "from user " +
-                        "where username = (?))", (status, book_id, username))  # можно измениить на простой запрос, не нужно искать user_id тк есть current_user.id
-    conn.commit()
-    conn.close()
+    if status == 2:
+        res = Status.check_status_equal_two(book_id)
+        if res != None:
+            print(res[1])
+            return make_response(jsonify({"Ratatoskr": "occupied", "username": res[1]}))
 
-    return make_response(jsonify({"Ratatoskr": "OK"}), 200)
+    Status.set_status(status, book_id, username)
+
+    return make_response(jsonify({"Ratatoskr": status}), 200)
 
 
 @app.route('/set_join_user_book', methods=["POST", "OPTIONS"])
+@login_required
 def set_join_user_book():
     r = request.json['info']
     status = r["status"]
     book_id = r["book_id"]
 
-    conn = sqlite3.connect("app.db")
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO status VALUES ((?), (?), (?))", (current_user.id, book_id, status))
-    conn.commit()
-    conn.close()
+    if status == 2:
+        res = Status.check_status_equal_two(book_id)
+        if res != None:
+            print(res[1])
+            return make_response(jsonify({"Ratatoskr": "occupied", "username": res[1]}))
+    Status.join_book(book_id, status)
 
-    return make_response(jsonify({"Ratatoskr": "OK"}), 200)
+    return make_response(jsonify({"Ratatoskr": status}), 200)
 
 
 @app.route('/delete_status', methods=["DELETE", "OPTIONS"])
+@login_required
 def delete_status():
     r = request.json["info"]
     book_id = r["book_id"]
 
-    conn = sqlite3.connect("app.db")
-    cursor = conn.cursor()
-    cursor.execute("delete from status where user_id = (?) and book_id = (?)", (current_user.id, book_id))
-    conn.commit()
-    conn.close()
+    Status.delete_status(book_id)
 
     return make_response(jsonify({"Ratatoskr": "OK"}))
 
 
+@app.route('/check_status_equal_two', methods=["POST", "OPTIONS"])
+@login_required
+def check_status_equal_two():
+    book_id = request.json["book_id"]
+
+    res = Status.check_status_equal_two(book_id)
+    if res != None:
+        print(res[1])
+        return make_response(jsonify({"Ratatoskr": "occupied", "username": res[1]}))
+    return make_response(jsonify({"Ratatoskr": "OK"}), 200)
+
+@app.route('/check_all_status_equal_two', methods=["GET", "OPTIONS"])
+@login_required
+def check_status_all_equal_two():
+    #book_id = request.json["book_id"]
+
+    res = Status.check_all_status_equal_two()
+    status = []
+    for s in res:
+        status.append({'status':s[0], 'username': s[1], 'book_id': s[2]})
+    return make_response(jsonify({"Ratatoskr": status}), 200)
+
 @app.route('/delete_book', methods=["DELETE", "OPTIONS"])
+@login_required
 def delete_book():
     r = request.json["info"]
     book_id = r["book_id"]
 
-    conn = sqlite3.connect("app.db")
-    cursor = conn.cursor()
-    cursor.execute("delete from status where user_id = (?) and book_id = (?)", (current_user.id, book_id))
-    conn.commit()
-    cursor.execute("delete from location where book_id = (?)", (book_id, ))
-    conn.commit()
-    cursor.execute("delete from book where id = (?)", (book_id, ))
-    conn.commit()
-    conn.close()
+    Book.delete_book(book_id)
 
-    return make_response(jsonify({"Ratatoskr": "OK"}))
+    return make_response(jsonify({"Ratatoskr": "OK"}), 200)

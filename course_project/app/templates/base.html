@@ -24,31 +24,14 @@
             <div class="collapse navbar-collapse" id="bs-example-navbar-collapse-1">
                 <ul class="nav navbar-nav">
                     <li><a href="{{ url_for('index') }}">Книги</a></li>
-                    <li><a href="{{ url_for('add_book') }}">Добавить книгу</a></li>
+                    {% if not current_user.is_anonymous %}
+                      <li><a href="{{ url_for('add_book') }}">Добавить книгу</a></li>
+                    {% endif %}
                 </ul>
                   <ul class="nav navbar-nav ">
-                      <!-- <div class="input-group">
-                        <input type="text" class="form-control" placeholder="Поиск" name="q">
-                        <div class="input-group-btn">
-                          <button class="btn btn-default" type="submit"><i class="glyphicon glyphicon-search"></i></button>
-                        </div>
-                      </div> -->
-                    <!-- <form class="navbar-form" role="search" formaction="{{ url_for('search') }}"> -->
                       <form autocomplete="off" action="{{ url_for('search') }}" class="navbar-form" role="search" aria-label="Search for books to add to your shelves">
                         <input class="form-control" autocomplete="off" name="q" type="text" placeholder="Поиск" aria-label="Search books" aria-controls="searchResults">
-                        <!-- <button type="submit" class="btn btn-default"><i class="glyphicon glyphicon-search"></i></button> -->
                       </form>
-                      <!-- <div class="input-group">
-
-
-                        <input id="input_search" type="search" formmethod="POST" class="form-control" placeholder="Поиск" name="t">
-
-                          <button id="search" class="btn btn-default" type="submit"><i class="glyphicon glyphicon-search"></i></button>
-
-
-
-                      </div> -->
-                    <!-- </form> -->
                 </ul>
                 <ul class="nav navbar-nav navbar-right">
                     {% if current_user.is_anonymous %}

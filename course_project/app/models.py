@@ -16,7 +16,6 @@ class User(UserMixin, db.Model):
     username = db.Column(db.String(64), index = True, unique = True)
     email = db.Column(db.String(128), index = True, unique = True)
     password_hash = db.Column(db.String(128))
-    fio = db.Column(db.String(128))
     about_me = db.Column(db.String(150))
     last_seen = db.Column(db.DateTime, default = datetime.utcnow)
     image = db.Column(db.Text)
@@ -43,12 +42,9 @@ class User(UserMixin, db.Model):
     def get_book(id):
         conn = sqlite3.connect("app.db")
         cursor = conn.cursor()
-        # нужно добавить какой-то способ указывать состояние книги
-        # если пользователь не читал ее, то таблицы не будут связаны
-        # придумать как это проверять
         cursor.execute("select title, author, image from book where id = %d", id)
         res = cursor.fetchall()
-        print(res)
+        conn.close()
         return res
 
     def get_books(self):
@@ -58,6 +54,7 @@ class User(UserMixin, db.Model):
                     join book on us.book_id == book.id \
                     where us.id = (?)", (current_user.id, ))
         res = cursor.fetchall()
+        conn.close()
         return res
 
     def get_books_count(self):
@@ -67,6 +64,7 @@ class User(UserMixin, db.Model):
                     join book on us.book_id == book.id\
                     where us.id = (?)", (current_user.id, ))
         res = cursor.fetchall()
+        conn.close()
         return res[0][0]
 
     @staticmethod
@@ -78,20 +76,6 @@ class User(UserMixin, db.Model):
         return User.query.get(id)
 
 
-
-    # def user_books(self):
-    #     return
-
-    # def add(book):
-    #     if not self.is_added(book):
-    #         self.books.append(user)
-    #
-    # def is_added(self, book):
-    #     return self.books.filter(status.book_id == user.id).count() > 0
-    # нужно добавить функции добавления и удаления книг, но пока не знаю как
-    # потому тчо в примере используется только одна таблица, а у меня их 2
-
-
 @login.user_loader
 def load_user(id):
     return User.query.get(int(id))
@@ -100,7 +84,7 @@ class Book(db.Model):
     #__searchable__ = ['title']
     id = db.Column(db.Integer, primary_key = True)
     title = db.Column(db.String(60), index = True)
-    about_book = db.Column(db.String(150))  # мб надо будет сделать больше
+    about_book = db.Column(db.String(150))
     author = db.Column(db.String(60), index = True)
     location = db.relationship('Location', uselist=False, backref='books')
     image = db.Column(db.Text)
@@ -115,49 +99,71 @@ class Book(db.Model):
     def get_book(self, id):
         conn = sqlite3.connect("app.db")
         cursor = conn.cursor()
-        # нужно добавить какой-то способ указывать состояние книги
-        # если пользователь не читал ее, то таблицы не будут связаны
-        # придумать как это проверять
         cursor.execute("select title, author, image from book where id = %d", id)
         res = cursor.fetchall()
-        print(res)
+        conn.close()
         return res
 
-#whooshalchemy.whoosh_index(app, Book)
-    # @staticmethod
-    # def read_image(filename):
-    #     try:
-    #         fin = open(filename, "rb")
-    #         img = fin.read()
-    #         return img
-    #     except EOError, e:
-    #         print('Error {}: {}'.format(e.args[0], e.args[1]))
-    #         sys.exit(1)
-    #     finally:
-    #         if fin:
-    #             fin.close
-    #
-    # # очень сомнительная функция, ее работу я не проверяла
-    # # иначе можно сделать varchar(max) и хранить base64      $("#product_image").attr("src", "data:image/png;base64," + data["img"]);
-    # def save_image(self, img, id):
-    #     try:
-    #         conn = sqlite3.connect('app.db')
-    #         cursor = conn.cursor()
-    #         data = read_image(img)
-    #         binary = sqlite3.Binary(data)
-    #         cur.execute("UPDATE book SET image = '(?)' WHERE id = (?)", binary, id)
-    #         conn.commit()
-    #     except lite.Error, e:
-    #         if con:
-    #             con.rollback()
-    #
-    #             print "Error %s:" % e.args[0]
-    #             sys.exit(1)
-    #     finally:
-    #         if con:
-    #             con.close()
+    def search_title(search):
+        conn = sqlite3.connect("app.db")
+        cursor = conn.cursor()
+        cursor.execute("select id, title, author, image from book where title like (?) ", (search, ))
+        res = cursor.fetchall()
+        conn.close()
+        return res
 
+    def search_author(search):
+        conn = sqlite3.connect("app.db")
+        cursor = conn.cursor()
+        cursor.execute("select id, title, author, image from book where author like (?) ", (search, ))
+        res = cursor.fetchall()
+        conn.close()
+        return res
 
+    def no_search(search):
+        conn = sqlite3.connect("app.db")
+        cursor = conn.cursor()
+        cursor.execute("select id, title, author, image from book where author like (?) or title like (?)", (search, search))
+        res = cursor.fetchall()
+        conn.close()
+        return res
+
+    def other_books_author(bookid):
+        conn = sqlite3.connect("app.db")
+        cursor = conn.cursor()
+        cursor.execute("select book.id, book.title, book.author, book.image, B.title, B.author, B.about_book, B.image, B.shelving, B.shelf, B.column, B.position, B.id " +
+                        "from ( " +
+                            "select book.id, title, author, about_book, image, shelving, shelf, column, position " +
+                            "from book left join location on book.id = location.book_id  where book.id = (?) " +
+                            ") as B left join book on book.author = B.author and B.id != book.id;", (bookid, ))
+        res = cursor.fetchall()
+        conn.close()
+        return res
+
+    def get_status_book(bookid):
+        conn = sqlite3.connect("app.db")
+        cursor = conn.cursor()
+        cursor.execute("select status " +
+                        "from ( " +
+                            "select username, book.id, status " +
+                            "from (user join status on user.id == status.user_id) as us " +
+                            "join book on us.book_id == book.id " +
+                            "where user.id = (?)  " +
+                            ") as res where res.id = (?)", (current_user.id, bookid))
+        res = cursor.fetchone()
+        conn.close()
+        return res
+
+    def delete_book(book_id):
+        conn = sqlite3.connect("app.db")
+        cursor = conn.cursor()
+        cursor.execute("delete from status where user_id = (?) and book_id = (?)", (current_user.id, book_id))
+        conn.commit()
+        cursor.execute("delete from location where book_id = (?)", (book_id, ))
+        conn.commit()
+        cursor.execute("delete from book where id = (?)", (book_id, ))
+        conn.commit()
+        conn.close()
 
 
 class Status(db.Model):
@@ -170,6 +176,59 @@ class Status(db.Model):
     book_id = db.Column(db.Integer, db.ForeignKey('book.id'))
     status = db.Column(db.Integer)
 
+    # функция, которая проверяет есть ли такое, что у какого-то пользователя статус с этой книгой = 2 (в процессе чтения)
+    def check_status_equal_two(book_id):
+        conn = sqlite3.connect("app.db")
+        cursor = conn.cursor()
+        cursor.execute("select S.status, username \
+                        from ( \
+                                select status, user_id \
+                                from status \
+                                where book_id = (?) and status = 2 \
+                            ) as S join user on S.user_id = user.id \
+                             where id != (?);", (book_id, current_user.id)) # если занята книга не текущим пользователям
+        res = cursor.fetchone()
+        conn.close()
+        return res
+
+
+    def check_all_status_equal_two():
+        conn = sqlite3.connect("app.db")
+        cursor = conn.cursor()
+        cursor.execute("select S.status, username, S.book_id \
+                        from ( \
+                            select status, user_id, book_id \
+                            from status \
+                            where status = 2 \
+                            ) as S join user on S.user_id = user.id;") # если занята книга не текущим пользователям
+        res = cursor.fetchall()
+        conn.close()
+        return res
+
+
+    def set_status(status, book_id, username):
+        conn = sqlite3.connect("app.db")
+        cursor = conn.cursor()
+        cursor.execute("update status set status = (?) " +
+                       "where book_id = (?) and user_id = (?)", (status, book_id, current_user.id))
+        conn.commit()
+        conn.close()
+
+
+    def join_book(book_id, status):
+        conn = sqlite3.connect("app.db")
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO status VALUES ((?), (?), (?))", (current_user.id, book_id, status))
+        conn.commit()
+        conn.close()
+
+    def delete_status(book_id):
+        conn = sqlite3.connect("app.db")
+        cursor = conn.cursor()
+        cursor.execute("delete from status where user_id = (?) and book_id = (?)", (current_user.id, book_id))
+        conn.commit()
+        conn.close()
+
 
 class Location(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -178,3 +237,14 @@ class Location(db.Model):
     column = db.Column(db.Integer, index=True)
     position = db.Column(db.Integer, index=True)
     book_id = db.Column(db.Integer, db.ForeignKey('book.id'))
+
+    def update_location(shelving, shelf, column, position, bookid):
+        conn = sqlite3.connect("app.db")
+        cursor = conn.cursor()
+        cursor.execute("UPDATE location SET shelving = (?), shelf = (?), column = (?), position = (?) WHERE id = (?)", (shelving,
+                                                                                                            shelf,
+                                                                                                            column,
+                                                                                                            position,
+                                                                                                            bookid))
+        conn.commit()
+        conn.close()

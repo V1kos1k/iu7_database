@@ -11,6 +11,11 @@
       padding-bottom:10px;
       padding-top:10px;
     }
+    a.disabled {
+      pointer-events: none; /* делаем элемент неактивным для взаимодействия */
+      cursor: default; /*  курсор в виде стрелки */
+      color: #888;/* цвет текста серый */
+    }
 
 
   </style>
@@ -35,10 +40,9 @@
             <li class="divider"></li>
             <li class="item" value="-1" role="status"><a role="menuitem" tabindex="-1">Сбросить</a></li>
           </ul>
-
         </div>
         <div class="row">
-          <button type="button" id="delete_button" class="btn btn-danger btn-test labelBook" style="margin-top:10px; margin-left:62px;" data-toggle="modal" data-target="#delete_window">Удалить книгу</button>
+          <button type="button" id="delete_button" class="btn btn-danger btn-test labelBook" style="margin-top:10px; margin-left:62px;">Удалить книгу</button>
         </div>
         <div class="row">
           <button type="button" id="change_button" class="btn btn-info btn-test labelBook" style="margin-top:10px; margin-left:77px;" data-toggle="modal" data-target="#change_window">Изменить</button>
@@ -55,13 +59,6 @@
           </div>
           <h3 class="labelBook" style="font-weight: bold;">Местоположение</h3>
           <div class="container col-sm-12">
-            <!-- <span class="labelBook" style="font-size: 16px; margin-right:10px;">Стелаж: {{ book.shelving }}</span>
-            <span class="labelBook" style="font-size: 16px; margin-right:10px;">Полка: {{ book.shelf }}</span>
-            <span class="labelBook" style="font-size: 16px; margin-right:10px;">Ряд: {{ book.column }}</span>
-            <span class="labelBook" style="font-size: 16px; margin-right:10px;">Позиция: {{ book.position }}</span>
-            <br>
-            <br>
-            <br> -->
             <p class="labelBook" style="font-size: 16px; margin-right:10px;">Стелаж: {{ book.shelving }}
             <br>Полка: {{ book.shelf }}
             <br>Ряд: {{ book.column }}
@@ -150,16 +147,35 @@
     </div>
   </div>
 
+  <div class="modal fade" id="occupied_window" role="dialog">
+    <div class="modal-dialog modal-sm">
+      <div class="modal-content">
+        <div class="modal-header">
+          <button type="button" class="close" data-dismiss="modal">&times;</button>
+          <h4 class="modal-title">Ой, ой...</h4>
+        </div>
+        <div class="modal-body">
+          <p id="p_occurrence" class="text-center"> </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
   <script>
     $(document).ready(function() {
-      if ({{ book.status }} == 1) {
+      statusDisplay({{ book.status }});
+    });
+
+    function statusDisplay(status) {
+      if (status == 1) {
         $("#menu1").html('Прочитано <span class="caret"></span>');
-      } else if ({{ book.status }} == 2) {
+      } else if (status == 2) {
         $("#menu1").html('В процессе <span class="caret"></span>');
-      } else if ({{ book.status }} == 3) {
+      } else if (status == 3) {
         $("#menu1").html('Хочу прочитать <span class="caret"></span>');
       }
-    });
+    }
 
     $(".item").click(function() {
 
@@ -173,32 +189,59 @@
             success: function(res) {
               location.reload();
             }
-          })
+          });
         } else {
-          $("#menu1").html($(this).text()+' <span class="caret"></span>');
           $.ajax({
             type: "PUT",
             url: "http://localhost:5000/set_status",
             data: JSON.stringify({"info": {"status": $(this).val(), "book_id": {{ book.book_id }} }}),
             contentType: "application/json; charset=utf-8",
             success: function(res) {
-
+              if (res["Ratatoskr"] == "occupied") {
+                $("#occupied_window").modal();
+                $("#p_occurrence").html("Книги сейчас нет на месте( Она у пользователя " + res["username"]);
+              } else {
+                statusDisplay(res["Ratatoskr"]);
+              }
             }
-          })
+          });
         }
       } else if ({{ book.status }} == 0  && $(this).val() != -1) {
-        $("#menu1").html($(this).text()+' <span class="caret"></span>');
+        //$("#menu1").html($(this).text()+' <span class="caret"></span>');
         $.ajax({
           type: "POST",
           url: "http://localhost:5000/set_join_user_book",
           data: JSON.stringify({"info": {"status": $(this).val(), "book_id": {{ book.book_id }}}}),
           contentType: "application/json; charset=utf-8",
           success: function(res) {
-            location.reload();
-          }
-        })
-      }
+            if (res["Ratatoskr"] == "occupied") {
+              $("#occupied_window").modal();
+              $("#p_occurrence").html("Книги сейчас нет на месте(<br> Она у пользователя " + res["username"]);
 
+            } else {
+              statusDisplay(res["Ratatoskr"]);
+            }
+          }
+        });
+      }
+    });
+
+    $("#delete_button").click(function() {
+      $.ajax({
+        type: "POST",
+        url: "http://localhost:5000/check_status_equal_two",
+        data: JSON.stringify({"book_id": {{ book.book_id }}}),
+        contentType: "application/json; charset=utf-8",
+        success: function(res) {
+          if (res["Ratatoskr"] == "occupied") {
+            $("#occupied_window").modal();
+            $("#p_occurrence").html("Вы не можете удалить книгу, т.к. ее читает пользователь " + res["username"]);
+          } else {
+            $("#delete_window").modal();
+          }
+
+        }
+      });
     });
 
     $("#delete").click(function() {
@@ -208,9 +251,13 @@
         data: JSON.stringify({"info": {"book_id": {{ book.book_id }}}}),
         contentType: "application/json; charset=utf-8",
         success: function(res) {
-          document.location.replace("{{ url_for('index') }}");
+            document.location.replace("{{ url_for('index') }}");
         }
-      })
+      });
+    });
+
+    $("#submit").click(function() {
+
     });
 
 

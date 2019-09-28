@@ -4,7 +4,11 @@
   <table class="table table-hover">
     <!-- <tr valign='top'> -->
     <tr>
-      <td width="250px"><img src="data:image/png;base64,{{ user.image }}" style="max-width: 200px;"></td>
+      {% if user.image %}
+        <td width="250px"><img src="data:image/png;base64,{{ user.image }}" style="max-width: 200px;"></td>
+      {% else %}
+        <td width="250px"><img id="anotherImage" src="http://www.youloveit.ru/uploads/posts/2017-05/1494861592_youloveit_ru_kot_pushin04.png" style="max-width: 200px;"></td>
+      {% endif %}
       <!-- <td valign='middle'> -->
       <td>
         <h1>{{ user.username }}</h1>
